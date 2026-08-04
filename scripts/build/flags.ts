@@ -748,6 +748,23 @@ export const bunOnlyFlags: Flag[] = [
     desc: "Treat most warnings as errors; suppress known-noisy ones",
   },
   {
+    // Any cross-compile with --target set (linux gnu/musl cross, darwin cross,
+    // freebsd cross, android cross): clang strictly checks
+    // -Wundefined-var-template even though the template static's definition
+    // lives in the WebKit prebuilt static lib (resolved at link time). JSC
+    // headers declare s_info as a template static and define it in a .cpp;
+    // bun's own bindings (e.g. JSBuffer.cpp) reference it directly, so the PCH
+    // system_header pragma doesn't suppress the warning there. Native builds
+    // (host==target, no crossTarget) and clang-cl (windows cross, which uses a
+    // different driver that doesn't trip this) are excluded. -Werror escalates
+    // it. Note: the condition is crossTarget-based, not arch-mismatch-based —
+    // aarch64-linux → arm64-darwin is a cross-compile (same arch, different
+    // OS) and needs this just as much as aarch64 → x86_64-linux.
+    flag: "-Wno-undefined-var-template",
+    when: c => c.crossTarget !== undefined && !c.windows,
+    desc: "Cross-compile (non-windows): suppress -Wundefined-var-template (WebKit template statics resolved at link)",
+  },
+  {
     // Debug adds -Werror=unused; release omits it (vars used only in ASSERT)
     flag: ["-Werror=unused", "-Wno-unused-function"],
     when: c => c.unix && c.debug,
@@ -1234,6 +1251,11 @@ export const linkerFlags: Flag[] = [
   },
 
   // ─── Linux ───
+  {
+    flag: c => [`--target=${c.crossTarget!}`, `--sysroot=${c.sysroot!}`],
+    when: c => c.linux && c.abi !== "android" && c.crossTarget !== undefined && c.sysroot !== undefined,
+    desc: "linux sysroot link (gnu: ubuntu:20.04+gcc-13; musl: alpine)",
+  },
   {
     // Wrap glibc symbols whose default version on a modern build host is
     // > 2.17. Each __wrap_X in workaround-missing-symbols.cpp pins to the
